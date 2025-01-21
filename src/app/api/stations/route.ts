@@ -41,30 +41,22 @@ async function getRadioBrowserServers(): Promise<string[]> {
   }
 }
 
-async function fetchRadioBrowserStations(offset: number = 0, limit: number = 100, searchQuery: string = '') {
+async function fetchRadioBrowserStations() {
   try {
     const servers = await getRadioBrowserServers();
-    // Randomly select a server
     const server = servers[Math.floor(Math.random() * servers.length)];
 
-    // Build search parameters
+    // Build base parameters - get all stations at once
     const params = new URLSearchParams({
-      offset: offset.toString(),
-      limit: limit.toString(),
-      order: 'clickcount',  // Sort by popularity
-      reverse: 'true',
-      hidebroken: 'true',   // Hide broken stations
+      offset: '0',
+      limit: '1000',  // Get maximum stations in one request
+      hidebroken: 'true',
+      order: 'clickcount',
+      reverse: 'true'
     });
 
-    // Add search parameters if query exists
-    if (searchQuery) {
-      params.append('name', searchQuery);
-      params.append('tagList', searchQuery);
-      params.append('nameExact', 'false');
-    }
-
     const response = await fetch(
-      `https://${server}/json/stations/search?${params.toString()}`,
+      `https://${server}/json/stations?${params.toString()}`,
       {
         headers: {
           'User-Agent': 'InternetRadioApp/1.0',
@@ -115,12 +107,8 @@ async function trackStationClick(stationId: string) {
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '100');
-    const search = searchParams.get('search') || '';
     const action = searchParams.get('action');
     const stationId = searchParams.get('stationId');
-    const offset = (page - 1) * limit;
 
     // Handle click tracking
     if (action === 'click' && stationId) {
@@ -128,13 +116,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    // Handle station search
-    const stations = await fetchRadioBrowserStations(offset, limit, search);
+    // Handle station fetch - now returns all stations
+    const stations = await fetchRadioBrowserStations();
     return NextResponse.json({
       stations,
-      page,
-      limit,
-      hasMore: stations.length === limit
+      hasMore: false // Since we're loading all stations at once
     });
   } catch (error) {
     console.error('Error in stations API:', error);
@@ -143,4 +129,4 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
-} 
+}

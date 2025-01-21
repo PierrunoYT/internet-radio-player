@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Howl } from 'howler';
 import Image from 'next/image';
 
@@ -12,109 +12,109 @@ export interface RadioStation {
   tags?: string;
 }
 
-const STATIONS_PER_PAGE = 24; // Increased for better grid layout
+const STATIONS_PER_PAGE = 24;
 
 export default function RadioPlayer() {
   const [player, setPlayer] = useState<Howl | null>(null);
-  const [stations, setStations] = useState<RadioStation[]>([]);
+  const [allStations, setAllStations] = useState<RadioStation[]>([]);
+  const [displayedStations, setDisplayedStations] = useState<RadioStation[]>([]);
   const [currentStation, setCurrentStation] = useState<RadioStation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
-  const [searchAbortController, setSearchAbortController] = useState<AbortController | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   // Debounce search query
   useEffect(() => {
+    setIsSearching(true);
     const timer = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery);
+      setIsSearching(false);
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      setIsSearching(false);
+    };
   }, [searchQuery]);
 
-  const fetchStations = useCallback(async (page: number, search: string, abortController?: AbortController) => {
+  const fetchStations = useCallback(async () => {
     try {
-      setLoadingMore(true);
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: STATIONS_PER_PAGE.toString(),
-        search: search,
-      });
-
-      const response = await fetch(`/api/stations?${params.toString()}`, {
-        signal: abortController?.signal
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.status}`);
-      }
-
+      setLoading(true);
+      const response = await fetch('/api/stations');
       const data = await response.json();
       
       if (data.error) {
         throw new Error(data.error);
       }
 
-      if (page === 1) {
-        setStations(data.stations);
-      } else {
-        setStations(prev => [...prev, ...data.stations]);
-      }
-      
-      setHasMore(data.hasMore);
+      setAllStations(data.stations);
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        // Ignore abort errors
-        return;
-      }
       console.error('Station fetch error:', err);
       setError('Failed to load radio stations');
     } finally {
       setLoading(false);
-      setLoadingMore(false);
     }
   }, []);
 
-  // Initial load
+  // Initial load of all stations
   useEffect(() => {
-    fetchStations(1, '');
+    fetchStations();
   }, [fetchStations]);
 
-  // Handle search query changes
-  useEffect(() => {
-    // Cancel previous request
-    if (searchAbortController) {
-      searchAbortController.abort();
+  // Filter stations based on search query
+  const normalizeText = (text: string) => {
+    return text
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')  // Remove diacritics
+      .toLowerCase()
+      .trim();
+  };
+
+  const filteredStations = useMemo(() => {
+    if (!debouncedSearchQuery) {
+      return allStations;
     }
 
-    // Create new abort controller for this request
-    const abortController = new AbortController();
-    setSearchAbortController(abortController);
+    const searchTerms = normalizeText(debouncedSearchQuery).split(/\s+/);
+    
+    return allStations.filter(station => {
+      const normalizedName = normalizeText(station.name);
+      const normalizedTags = station.tags ? normalizeText(station.tags) : '';
+      
+      // Match all search terms against both name and tags
+      return searchTerms.every(term => 
+        normalizedName.includes(term) || normalizedTags.includes(term)
+      );
+    });
+  }, [allStations, debouncedSearchQuery]);
 
-    setStations([]);
+  // Update displayed stations based on current page and filtered results
+  useEffect(() => {
+    if (debouncedSearchQuery) {
+      // Show all filtered results when searching
+      setDisplayedStations(filteredStations);
+    } else {
+      // Use pagination only for the initial view
+      const endIndex = currentPage * STATIONS_PER_PAGE;
+      const stationsToShow = filteredStations.slice(0, endIndex);
+      setDisplayedStations(stationsToShow);
+    }
+  }, [currentPage, filteredStations, debouncedSearchQuery]);
+
+  // Reset pagination when search query changes
+  useEffect(() => {
     setCurrentPage(1);
-    setHasMore(true);
-    setLoading(true);
-    setError(null);
-
-    fetchStations(1, debouncedSearchQuery, abortController);
-
-    return () => {
-      abortController.abort();
-    };
-  }, [debouncedSearchQuery, fetchStations]);
+  }, [debouncedSearchQuery]);
 
   const loadMore = () => {
-    if (!loadingMore && hasMore) {
-      const nextPage = currentPage + 1;
-      setCurrentPage(nextPage);
-      fetchStations(nextPage, debouncedSearchQuery);
-    }
+    setCurrentPage(prev => prev + 1);
   };
+
+  // Only show "Load More" when not searching and there are more stations to show
+  const hasMore = !debouncedSearchQuery && currentPage * STATIONS_PER_PAGE < filteredStations.length;
 
   const playStation = async (station: RadioStation) => {
     if (currentStation?.id === station.id) {
@@ -187,10 +187,17 @@ export default function RadioPlayer() {
               onClick={() => setSearchQuery('')}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
             >
-              ✕
+              {isSearching ? (
+                <span className="animate-spin">⟳</span>
+              ) : (
+                <span>✕</span>
+              )}
             </button>
           )}
         </div>
+        {isSearching && searchQuery && (
+          <p className="text-sm text-gray-500 mt-1">Searching...</p>
+        )}
       </div>
 
       {/* Current station player */}
@@ -217,7 +224,7 @@ export default function RadioPlayer() {
 
       {/* Station grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
-        {stations.map((station) => (
+        {displayedStations.map((station) => (
           <button
             key={station.id}
             onClick={() => playStation(station)}
@@ -269,20 +276,17 @@ export default function RadioPlayer() {
         <div className="flex justify-center mt-6">
           <button
             onClick={loadMore}
-            disabled={loadingMore}
             className={`px-6 py-2 rounded-lg ${
-              loadingMore
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-500 text-white hover:bg-blue-600'
+              'bg-blue-500 text-white hover:bg-blue-600'
             }`}
           >
-            {loadingMore ? 'Loading...' : 'Load More Stations'}
+            Load More Stations
           </button>
         </div>
       )}
 
       {/* No results message */}
-      {stations.length === 0 && !loading && (
+      {displayedStations.length === 0 && !loading && (
         <div className="text-center text-gray-500 mt-8">
           No stations found matching &ldquo;{searchQuery}&rdquo;
         </div>

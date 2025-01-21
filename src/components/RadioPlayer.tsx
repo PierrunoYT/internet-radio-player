@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Howl } from 'howler';
 import Image from 'next/image';
 
 export interface RadioStation {
-  id: number;
+  id: string;
   name: string;
   url: string;
   favicon?: string;
@@ -24,11 +24,35 @@ export default function RadioPlayer() {
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [searchAbortController, setSearchAbortController] = useState<AbortController | null>(null);
 
-  const fetchStations = async (page: number) => {
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const fetchStations = useCallback(async (page: number, search: string, abortController?: AbortController) => {
     try {
       setLoadingMore(true);
-      const response = await fetch(`/api/stations?page=${page}&limit=${STATIONS_PER_PAGE}`);
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: STATIONS_PER_PAGE.toString(),
+        search: search,
+      });
+
+      const response = await fetch(`/api/stations?${params.toString()}`, {
+        signal: abortController?.signal
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status}`);
+      }
+
       const data = await response.json();
       
       if (data.error) {
@@ -43,43 +67,56 @@ export default function RadioPlayer() {
       
       setHasMore(data.hasMore);
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        // Ignore abort errors
+        return;
+      }
       console.error('Station fetch error:', err);
       setError('Failed to load radio stations');
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
-  };
-
-  useEffect(() => {
-    fetchStations(1);
   }, []);
 
-  // Reset stations when search query changes
+  // Initial load
   useEffect(() => {
+    fetchStations(1, '');
+  }, [fetchStations]);
+
+  // Handle search query changes
+  useEffect(() => {
+    // Cancel previous request
+    if (searchAbortController) {
+      searchAbortController.abort();
+    }
+
+    // Create new abort controller for this request
+    const abortController = new AbortController();
+    setSearchAbortController(abortController);
+
     setStations([]);
     setCurrentPage(1);
     setHasMore(true);
-    fetchStations(1);
-  }, [searchQuery]);
+    setLoading(true);
+    setError(null);
+
+    fetchStations(1, debouncedSearchQuery, abortController);
+
+    return () => {
+      abortController.abort();
+    };
+  }, [debouncedSearchQuery, fetchStations]);
 
   const loadMore = () => {
     if (!loadingMore && hasMore) {
       const nextPage = currentPage + 1;
       setCurrentPage(nextPage);
-      fetchStations(nextPage);
+      fetchStations(nextPage, debouncedSearchQuery);
     }
   };
 
-  const filteredStations = stations.filter(station => {
-    const searchLower = searchQuery.toLowerCase();
-    return (
-      station.name.toLowerCase().includes(searchLower) ||
-      (station.tags && station.tags.toLowerCase().includes(searchLower))
-    );
-  });
-
-  const playStation = (station: RadioStation) => {
+  const playStation = async (station: RadioStation) => {
     if (currentStation?.id === station.id) {
       stopPlaying();
       return;
@@ -87,6 +124,13 @@ export default function RadioPlayer() {
 
     if (player) {
       player.unload();
+    }
+
+    // Track station click
+    try {
+      await fetch(`/api/stations?action=click&stationId=${station.id}`);
+    } catch (error) {
+      console.error('Failed to track station click:', error);
     }
 
     const sound = new Howl({
@@ -173,7 +217,7 @@ export default function RadioPlayer() {
 
       {/* Station grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
-        {filteredStations.map((station) => (
+        {stations.map((station) => (
           <button
             key={station.id}
             onClick={() => playStation(station)}
@@ -238,7 +282,7 @@ export default function RadioPlayer() {
       )}
 
       {/* No results message */}
-      {filteredStations.length === 0 && !loading && (
+      {stations.length === 0 && !loading && (
         <div className="text-center text-gray-500 mt-8">
           No stations found matching &ldquo;{searchQuery}&rdquo;
         </div>

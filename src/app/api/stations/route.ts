@@ -41,91 +41,88 @@ async function getRadioBrowserServers(): Promise<string[]> {
   }
 }
 
-async function fetchRadioBrowserStations() {
+async function fetchRadioBrowserStations(searchParams?: { 
+  query?: string, 
+  tag?: string, 
+  country?: string, 
+  limit?: number,
+  offset?: number 
+}) {
   try {
     const servers = await getRadioBrowserServers();
     const server = servers[Math.floor(Math.random() * servers.length)];
-
-    // Build base parameters - get all stations at once
+    
+    // Build search parameters
     const params = new URLSearchParams({
-      offset: '0',
-      limit: '1000',  // Get maximum stations in one request
+      limit: (searchParams?.limit || '100').toString(),
+      offset: (searchParams?.offset || '0').toString(),
       hidebroken: 'true',
       order: 'clickcount',
       reverse: 'true'
     });
 
-    const response = await fetch(
-      `https://${server}/json/stations?${params.toString()}`,
-      {
-        headers: {
-          'User-Agent': 'InternetRadioApp/1.0',
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch: ${response.status}`);
+    let endpoint = 'stations';
+    if (searchParams?.query) {
+      endpoint = 'stations/search';
+      params.append('name', searchParams.query);
+    } else if (searchParams?.tag) {
+      endpoint = 'stations/bytag';
+      params.append('tag', searchParams.tag);
+    } else if (searchParams?.country) {
+      endpoint = 'stations/bycountryexact';
+      params.append('country', searchParams.country);
     }
 
-    const stations = await response.json() as RadioBrowserStation[];
-    
-    return stations
-      .filter(station => station.url && station.name && station.name.trim() !== '')
-      .map((station) => ({
-        id: station.stationuuid,
-        name: station.name.trim(),
-        url: station.url_resolved || station.url,
-        favicon: station.favicon,
-        tags: station.tags,
-      }));
-  } catch (error) {
-    console.error('Failed to fetch from Radio Browser:', error);
-    return [];
-  }
-}
-
-// Track station clicks
-async function trackStationClick(stationId: string) {
-  try {
-    const servers = await getRadioBrowserServers();
-    const server = servers[Math.floor(Math.random() * servers.length)];
-    
-    await fetch(`https://${server}/json/url/${stationId}`, {
-      method: 'GET',
+    const response = await fetch(`https://${server}/json/${endpoint}?${params}`, {
       headers: {
         'User-Agent': 'InternetRadioApp/1.0',
-        'Content-Type': 'application/json',
-      },
+        'Content-Type': 'application/json'
+      }
     });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.map((station: RadioBrowserStation) => ({
+      id: station.stationuuid,
+      name: station.name,
+      url: station.url_resolved || station.url,
+      favicon: station.favicon,
+      tags: station.tags,
+      codec: station.codec,
+      votes: station.votes,
+      clickcount: station.clickcount
+    }));
   } catch (error) {
-    console.error('Failed to track station click:', error);
+    console.error('Error fetching radio stations:', error);
+    throw error;
   }
 }
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const action = searchParams.get('action');
-    const stationId = searchParams.get('stationId');
+    const query = searchParams.get('query') || undefined;
+    const tag = searchParams.get('tag') || undefined;
+    const country = searchParams.get('country') || undefined;
+    const limit = parseInt(searchParams.get('limit') || '100');
+    const offset = parseInt(searchParams.get('offset') || '0');
 
-    // Handle click tracking
-    if (action === 'click' && stationId) {
-      await trackStationClick(stationId);
-      return NextResponse.json({ success: true });
-    }
-
-    // Handle station fetch - now returns all stations
-    const stations = await fetchRadioBrowserStations();
-    return NextResponse.json({
-      stations,
-      hasMore: false // Since we're loading all stations at once
+    const stations = await fetchRadioBrowserStations({
+      query,
+      tag,
+      country,
+      limit,
+      offset
     });
+
+    return NextResponse.json(stations);
   } catch (error) {
-    console.error('Error in stations API:', error);
+    console.error('Error in GET handler:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch stations' },
+      { error: 'Failed to fetch radio stations' },
       { status: 500 }
     );
   }

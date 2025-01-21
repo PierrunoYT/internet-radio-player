@@ -4,9 +4,14 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: '**', // Allow all domains for radio station favicons
+        hostname: '*',
       },
+      {
+        protocol: 'http',
+        hostname: '*',
+      }
     ],
+    unoptimized: true, // Allow loading from any source since radio stations might use various image hosting setups
   },
 };
 

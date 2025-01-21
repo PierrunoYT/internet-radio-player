@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { getStations, addStation } from '@/lib/db';
 
 interface RadioBrowserStation {
   name: string;
@@ -10,41 +9,58 @@ interface RadioBrowserStation {
   stationuuid?: string;
   url_resolved?: string;
   codec?: string;
+  votes?: number;
+  clickcount?: number;
 }
 
-async function fetchRadioBrowserStations() {
+async function fetchRadioBrowserStations(offset: number = 0, limit: number = 100) {
   try {
+    // Get stations with pagination
     const response = await fetch(
-      'https://de1.api.radio-browser.info/json/stations/topclick/100'
+      `https://de1.api.radio-browser.info/json/stations/search?offset=${offset}&limit=${limit}&order=votes&reverse=true&minimum_votes=1`,
+      {
+        headers: {
+          'User-Agent': 'InternetRadioApp/1.0',
+          'Content-Type': 'application/json',
+        },
+      }
     );
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch: ${response.status}`);
+    }
+
     const stations = await response.json() as RadioBrowserStation[];
-    return stations.map((station) => ({
-      name: station.name,
-      url: station.url_resolved || station.url, // Use resolved URL if available
-      favicon: station.favicon,
-      tags: station.tags,
-    }));
+    
+    // Filter out stations without valid URLs or names
+    return stations
+      .filter(station => station.url && station.name && station.name.trim() !== '')
+      .map((station) => ({
+        name: station.name.trim(),
+        url: station.url_resolved || station.url,
+        favicon: station.favicon,
+        tags: station.tags,
+      }));
   } catch (error) {
     console.error('Failed to fetch from Radio Browser:', error);
     return [];
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    // First try to get stations from our database
-    let stations = getStations();
+    const { searchParams } = new URL(request.url);
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '100');
+    const offset = (page - 1) * limit;
 
-    // If we don't have any stations, fetch from Radio Browser API and save them
-    if (stations.length === 0) {
-      const radioBrowserStations = await fetchRadioBrowserStations();
-      for (const station of radioBrowserStations) {
-        addStation(station);
-      }
-      stations = getStations();
-    }
-
-    return NextResponse.json(stations);
+    const stations = await fetchRadioBrowserStations(offset, limit);
+    return NextResponse.json({
+      stations,
+      page,
+      limit,
+      hasMore: stations.length === limit // If we got a full page, there might be more
+    });
   } catch (error) {
     console.error('Error in stations API:', error);
     return NextResponse.json(

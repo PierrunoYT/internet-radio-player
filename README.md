@@ -2,6 +2,8 @@
 
 A Next.js-based internet radio application that lets you stream radio stations from around the world, powered by the Radio Browser API.
 
+Repository: [github.com/PierrunoYT/internet-radio-player](https://github.com/PierrunoYT/internet-radio-player)
+
 ## Features
 
 - Stream radio stations from a global directory
@@ -49,8 +51,8 @@ sudo apt-get install sqlite3
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd internet-radio
+   git clone https://github.com/PierrunoYT/internet-radio-player.git
+   cd internet-radio-player
    ```
 
 2. Install dependencies:

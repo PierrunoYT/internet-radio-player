@@ -23,11 +23,30 @@ export default function RadioPlayer() {
   const [currentStation, setCurrentStation] = useState<RadioStation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Input states
+  const [searchInput, setSearchInput] = useState('');
+  const [tagInput, setTagInput] = useState('');
+  const [countryInput, setCountryInput] = useState('');
+  
+  // Applied filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState('');
   const [selectedCountry, setSelectedCountry] = useState('');
+  
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+
+  const handleKeyPress = useCallback((
+    e: React.KeyboardEvent<HTMLInputElement>,
+    value: string,
+    setter: (value: string) => void
+  ) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      setter(value);
+    }
+  }, []);
 
   const fetchStations = useCallback(async (page: number) => {
     try {
@@ -63,7 +82,7 @@ export default function RadioPlayer() {
     }
   }, [searchQuery, selectedTag, selectedCountry]);
 
-  // Reset and fetch when search params change
+  // Reset and fetch when applied filters change
   useEffect(() => {
     setCurrentPage(1);
     setStations([]);
@@ -110,27 +129,51 @@ export default function RadioPlayer() {
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col gap-4 mb-8">
         <div className="flex flex-wrap gap-4">
-          <input
-            type="text"
-            placeholder="Search stations..."
-            className="flex-1 p-2 border rounded"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          <input
-            type="text"
-            placeholder="Filter by tag..."
-            className="flex-1 p-2 border rounded"
-            value={selectedTag}
-            onChange={(e) => setSelectedTag(e.target.value)}
-          />
-          <input
-            type="text"
-            placeholder="Filter by country..."
-            className="flex-1 p-2 border rounded"
-            value={selectedCountry}
-            onChange={(e) => setSelectedCountry(e.target.value)}
-          />
+          <div className="flex-1">
+            <input
+              type="text"
+              placeholder="Search stations... (press Enter)"
+              className="w-full p-2 border rounded"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyPress={(e) => handleKeyPress(e, searchInput, setSearchQuery)}
+            />
+            {searchQuery && (
+              <p className="text-sm text-gray-600 mt-1">
+                Searching for: {searchQuery}
+              </p>
+            )}
+          </div>
+          <div className="flex-1">
+            <input
+              type="text"
+              placeholder="Filter by tag... (press Enter)"
+              className="w-full p-2 border rounded"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyPress={(e) => handleKeyPress(e, tagInput, setSelectedTag)}
+            />
+            {selectedTag && (
+              <p className="text-sm text-gray-600 mt-1">
+                Tag filter: {selectedTag}
+              </p>
+            )}
+          </div>
+          <div className="flex-1">
+            <input
+              type="text"
+              placeholder="Filter by country... (press Enter)"
+              className="w-full p-2 border rounded"
+              value={countryInput}
+              onChange={(e) => setCountryInput(e.target.value)}
+              onKeyPress={(e) => handleKeyPress(e, countryInput, setSelectedCountry)}
+            />
+            {selectedCountry && (
+              <p className="text-sm text-gray-600 mt-1">
+                Country filter: {selectedCountry}
+              </p>
+            )}
+          </div>
         </div>
         
         {error && (

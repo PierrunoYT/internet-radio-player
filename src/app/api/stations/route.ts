@@ -51,8 +51,18 @@ async function fetchRadioBrowserStations(searchParams?: {
   try {
     const servers = await getRadioBrowserServers();
     const server = servers[Math.floor(Math.random() * servers.length)];
+
+    // Normalize country name if provided
+    let normalizedCountry = searchParams?.country;
+    if (normalizedCountry) {
+      normalizedCountry = normalizedCountry
+        .trim()
+        .toLowerCase()
+        .replace(/^switzerland$/i, 'Switzerland')
+        .replace(/^swiss$/i, 'Switzerland');
+    }
     
-    // Build search parameters
+    let endpoint = 'stations';
     const params = new URLSearchParams({
       limit: (searchParams?.limit || '100').toString(),
       offset: (searchParams?.offset || '0').toString(),
@@ -61,16 +71,12 @@ async function fetchRadioBrowserStations(searchParams?: {
       reverse: 'true'
     });
 
-    let endpoint = 'stations';
-    if (searchParams?.query) {
-      endpoint = 'stations/search';
-      params.append('name', searchParams.query);
+    if (normalizedCountry) {
+      endpoint = 'stations/bycountry/' + encodeURIComponent(normalizedCountry);
+    } else if (searchParams?.query) {
+      endpoint = 'stations/byname/' + encodeURIComponent(searchParams.query);
     } else if (searchParams?.tag) {
-      endpoint = 'stations/bytag';
-      params.append('tag', searchParams.tag);
-    } else if (searchParams?.country) {
-      endpoint = 'stations/bycountryexact';
-      params.append('country', searchParams.country);
+      endpoint = 'stations/bytag/' + encodeURIComponent(searchParams.tag);
     }
 
     const response = await fetch(`https://${server}/json/${endpoint}?${params}`, {
